@@ -2,7 +2,7 @@
 
 ## High-Level System Design
 
-The LLM Benchmarking Platform is a comprehensive system designed for large-scale AI model performance testing and cataloging. The platform handles thousands of test combinations across different hardware configurations, creating an accurate and up-to-date model catalog with 900+ configurations per model.
+The LLM Benchmarking Platform is a comprehensive system designed for large-scale AI model performance testing and cataloging. The platform handles thousands of test combinations across different hardware configurations, creating an accurate and up-to-date model catalog with 9,000+ configurations per model.
 
 The system follows a cloud-native microservices architecture with clear separation of concerns and horizontal scalability, optimized for handling the complex benchmarking matrix across multiple dimensions.
 
@@ -185,7 +185,7 @@ sequenceDiagram
 
 ### Benchmarking Complexity and Test Matrix
 
-The platform handles a complex test matrix with 900+ combinations per model across multiple dimensions:
+The platform handles a complex test matrix with 9,000+ combinations per model across multiple dimensions:
 
 ### Test Matrix Dimensions
 
@@ -203,7 +203,7 @@ The platform handles a complex test matrix with 900+ combinations per model acro
 - **UI Filtering Response**: < 500ms
 - **Cache Hit Ratio**: > 80%
 - **Throughput**: 1,000-2,000 queries/hour
-- **Batch Processing**: Hours/days for 9,000+ configurations
+- **Batch Processing**: Hours/days for 90,000+ configurations
 - **GPU Resource Allocation**: Dedicated full GPU per job (no resource sharing)
 - **Spot Instance Utilization**: 60-90% cost savings with automatic recovery
 

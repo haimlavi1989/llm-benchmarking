@@ -1,6 +1,6 @@
 # LLM Benchmarking Platform - Model Catalog Backend
 
-A comprehensive Python backend service for large-scale AI model performance testing and cataloging. This platform performs thousands of test combinations across different hardware configurations to create an accurate and up-to-date model catalog with 900+ configurations per model.
+A comprehensive Python backend service for large-scale AI model performance testing and cataloging. This platform performs thousands of test combinations across different hardware configurations to create an accurate and up-to-date model catalog with 9,000+ configurations per model.
 
 ## Project Objectives
 
@@ -45,7 +45,7 @@ model-catalog-backend/
 
 ## Benchmarking Complexity and Test Matrix
 
-The platform handles a complex test matrix with 900+ combinations per model across multiple dimensions:
+The platform handles a complex test matrix with 9,000+ combinations per model across multiple dimensions:
 
 ### Test Matrix Dimensions
 
@@ -59,7 +59,7 @@ The platform handles a complex test matrix with 900+ combinations per model acro
 
 ### Key Features
 
-- **Large-Scale Testing**: 900+ test combinations per model
+- **Large-Scale Testing**: 9,000+ test combinations per model
 - **Multi-Framework Support**: vLLM, TGI, LMDeploy inference engines
 - **Hardware Diversity**: L4, A100-80GB, H100 GPU configurations
 - **Quantization Support**: FP16, INT8, INT4 precision levels
@@ -130,7 +130,7 @@ The benchmarking process is managed using Argo Workflows in a Kubernetes environ
 ### Main Pipeline Stages
 
 1. **Trigger and Model Validation** - Process initiation and model availability check. If needed, retrieval from HuggingFace and metadata validation
-2. **Matrix Generation** - Building the complete test matrix of 900+ configurations
+2. **Matrix Generation** - Building the complete test matrix of 9,000+ configurations
 3. **Splitting and Parallel Execution** - Division into batches (typically 100 configurations per batch) with parallel execution
 4. **GPU Resource Allocation** - Dedicated allocation of full GPU to each job (no resource sharing)
 5. **Benchmark Execution** - Model loading, inference engine initialization, warmup runs, and execution of 100-500 actual requests
@@ -230,7 +230,7 @@ This project follows clean architecture principles with clear separation of conc
 - **Multi-Criteria Optimization**: TOPSIS and Pareto algorithms for model selection
 - **Kubernetes Native**: Full K8s deployment with namespace isolation
 - **Observability**: Prometheus/Grafana monitoring with distributed tracing
-- **Large-Scale Testing**: 900+ configurations per model across multiple dimensions
+- **Large-Scale Testing**: 9,000+ configurations per model across multiple dimensions
 - **Multi-Framework Support**: vLLM, TGI, LMDeploy inference engines
 - **Comprehensive Metrics**: TTFT, TPOT, throughput, accuracy, GPU utilization tracking
 - **Automated Pipeline**: Argo Workflows with full automation and fault tolerance

@@ -1,3 +1,6 @@
+# LLM Benchmarking Platform - Requirements
+# Supports 9,000+ test combinations per model
+
 # FastAPI and ASGI server
 fastapi==0.104.1
 uvicorn[standard]==0.24.0

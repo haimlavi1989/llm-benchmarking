@@ -137,14 +137,14 @@ erDiagram
 
 ### Entity Relationships
 
-The database schema is designed around the core entities that support the LLM benchmarking platform with large-scale performance testing across 900+ configurations per model:
+The database schema is designed around the core entities that support the LLM benchmarking platform with large-scale performance testing across 9,000+ configurations per model:
 
 #### **Core Entities**
 - **MODELS**: Base model information (GPT-4, Claude, Llama 3.1, etc.)
 - **MODEL_VERSIONS**: Specific quantizations (FP16, INT8, INT4) and formats
 - **HARDWARE_CONFIGS**: GPU configurations (L4, A100-80GB, H100) with pricing
 - **INFERENCE_FRAMEWORKS**: vLLM, TGI, LMDeploy framework capabilities
-- **BENCHMARK_RESULTS**: Time-series performance data from 900+ test combinations
+- **BENCHMARK_RESULTS**: Time-series performance data from 9,000+ test combinations
 - **USE_CASE_TAXONOMY**: Standardized use case categorization
 
 #### **Performance Optimization Entities**

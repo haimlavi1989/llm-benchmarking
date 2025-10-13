@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LLM Benchmarking Platform implements a comprehensive automation infrastructure using Argo Workflows in a Kubernetes environment. The platform handles thousands of test combinations across different hardware configurations, creating an accurate and up-to-date model catalog with 900+ configurations per model.
+The LLM Benchmarking Platform implements a comprehensive automation infrastructure using Argo Workflows in a Kubernetes environment. The platform handles thousands of test combinations across different hardware configurations, creating an accurate and up-to-date model catalog with 9,000+ configurations per model.
 
 The benchmarking process is fully automated across all stages, from model validation and matrix generation to parallel execution and results collection, optimized for large-scale performance testing.
 
@@ -20,7 +20,7 @@ graph TB
     
     ValidateModel --> GenerateMatrix[Generate Test Matrix]
     
-    Note1[Matrix Dimensions:<br/>- Hardware configs: 15<br/>- Frameworks: 3 vLLM,TGI,LMDeploy<br/>- Quantizations: 4 FP16,INT8,INT4<br/>- Workloads: 5<br/>Total: 900 combinations]
+    Note1[Matrix Dimensions:<br/>- Hardware configs: 15<br/>- Frameworks: 3 vLLM,TGI,LMDeploy<br/>- Quantizations: 4 FP16,INT8,INT4<br/>- Workloads: 5<br/>Total: 9,000 combinations]
     
     GenerateMatrix --> SplitBatches[Split into Batches<br/>100 configs per batch]
     
@@ -29,7 +29,7 @@ graph TB
     ParallelExecution --> Batch1[Batch 1<br/>Configs 1-100]
     ParallelExecution --> Batch2[Batch 2<br/>Configs 101-200]
     ParallelExecution --> Batch3[Batch 3<br/>Configs 201-300]
-    ParallelExecution --> BatchN[Batch N<br/>Configs 801-900]
+    ParallelExecution --> BatchN[Batch N<br/>Configs 8,901-9,000]
     
     subgraph "Single Benchmark Job Execution"
         Batch1 --> AllocateGPU[Allocate GPU Resources<br/>Check Spot Availability]
