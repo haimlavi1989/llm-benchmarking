@@ -1,0 +1,17 @@
+apiVersion: v2
+name: model-catalog-backend
+description: A Helm chart for Model Catalog Backend
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - model-catalog
+  - ml
+  - api
+  - fastapi
+home: https://github.com/your-org/model-catalog-backend
+sources:
+  - https://github.com/your-org/model-catalog-backend
+maintainers:
+  - name: Model Catalog Team
+    email: team@modelcatalog.com

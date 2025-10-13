@@ -1,0 +1,55 @@
+replicaCount: 3
+
+image:
+  repository: model-catalog-backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: api.modelcatalog.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+config:
+  appName: "Model Catalog Backend"
+  version: "0.1.0"
+  debug: false
+  apiV1Str: "/api/v1"
+  allowedHosts: '["*"]'
+  corsOrigins: '["http://localhost:3000", "http://localhost:8080"]'
+
+secrets:
+  secretKey: "your-secret-key-here-change-in-production"
+  databaseUrl: "postgresql://user:password@db:5432/model_catalog"

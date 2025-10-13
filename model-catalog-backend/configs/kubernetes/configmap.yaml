@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-catalog-config
+  namespace: model-catalog
+data:
+  APP_NAME: "Model Catalog Backend"
+  VERSION: "0.1.0"
+  DEBUG: "false"
+  API_V1_STR: "/api/v1"
+  ALLOWED_HOSTS: '["*"]'
+  CORS_ORIGINS: '["http://localhost:3000", "http://localhost:8080"]'
