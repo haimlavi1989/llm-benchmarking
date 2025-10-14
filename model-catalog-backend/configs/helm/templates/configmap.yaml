@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "model-catalog.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "model-catalog.labels" . | nindent 4 }}
+data:
+  APP_NAME: {{ .Values.config.appName | quote }}
+  VERSION: {{ .Values.config.version | quote }}
+  DEBUG: {{ .Values.config.debug | quote }}
+  API_V1_STR: {{ .Values.config.apiV1Str | quote }}
+  DATABASE_HOST: {{ .Values.config.databaseHost | quote }}
+  DATABASE_PORT: {{ .Values.config.databasePort | quote }}
+  DATABASE_NAME: {{ .Values.config.databaseName | quote }}
+  REDIS_HOST: {{ .Values.config.redisHost | quote }}
+  REDIS_PORT: {{ .Values.config.redisPort | quote }}
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  WORKERS: {{ .Values.config.workers | quote }}
+  MAX_CONNECTIONS: {{ .Values.config.maxConnections | quote }}
+  POOL_SIZE: {{ .Values.config.poolSize | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+
