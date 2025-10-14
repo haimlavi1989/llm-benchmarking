@@ -41,12 +41,8 @@ def main():
         activate_script = "source venv/bin/activate"
         pip_command = "venv/bin/pip"
     
-    # Install dependencies
-    if not run_command(f"{pip_command} install -r requirements.txt", "Installing dependencies"):
-        sys.exit(1)
-    
-    # Install development dependencies
-    if not run_command(f"{pip_command} install -e .[dev]", "Installing development dependencies"):
+    # Install dependencies and development dependencies
+    if not run_command(f"{pip_command} install -e .[dev]", "Installing dependencies and development dependencies"):
         sys.exit(1)
     
     # Create .env file if it doesn't exist
