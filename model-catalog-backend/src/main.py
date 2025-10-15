@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from src.core.config import settings
 from src.api.v1.routes import api_router
+from src.api.middleware.metrics import setup_metrics
 
 # Create FastAPI application
 app = FastAPI(
@@ -25,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Setup Prometheus metrics
+setup_metrics(app)
 
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)

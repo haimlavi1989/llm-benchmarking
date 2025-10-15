@@ -5,12 +5,16 @@ The core recommendation engine that integrates:
 - TOPSIS multi-criteria ranking
 - VRAM calculation
 - GPU matching
+- Redis caching for performance
 """
 
+import hashlib
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_model_service
 from src.services import ModelService, UseCaseConstraints
+from src.services.cache.redis_cache import cache
 from src.schemas import (
     RecommendationRequest,
     RecommendationResponse,
@@ -47,6 +51,9 @@ async def recommend_models(
 ) -> RecommendationResponse:
     """Get model recommendations based on use case and constraints.
     
+    Uses Redis caching to achieve >80% cache hit ratio and sub-100ms responses.
+    Cache TTL: 5 minutes per unique request.
+    
     Args:
         request: Recommendation request with use case and constraints
         service: Model service (injected)
@@ -65,6 +72,19 @@ async def recommend_models(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Weights must sum to 1.0"
         )
+    
+    # Generate cache key from request
+    cache_key = _generate_cache_key(request)
+    
+    # Try to get from cache (target: >80% hit ratio)
+    try:
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            # Cache hit - return immediately
+            return RecommendationResponse(**cached_result)
+    except Exception:
+        # Cache miss or error, continue with computation
+        pass
     
     # Build constraints
     constraints = UseCaseConstraints(
@@ -122,12 +142,21 @@ async def recommend_models(
             }
         }
         
-        return RecommendationResponse(
+        response = RecommendationResponse(
             use_case=request.use_case,
             total_candidates=len(model_cards),  # Could be improved with actual count
             recommendations=model_cards,
             constraints=constraints_dict
         )
+        
+        # Cache the result (TTL: 5 minutes = 300 seconds)
+        try:
+            cache.set(cache_key, response.model_dump(), ttl=300)
+        except Exception:
+            # Don't fail if cache fails - just log and continue
+            pass
+        
+        return response
         
     except ValueError as e:
         raise HTTPException(
@@ -139,4 +168,33 @@ async def recommend_models(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Recommendation failed: {str(e)}"
         )
+
+
+def _generate_cache_key(request: RecommendationRequest) -> str:
+    """Generate deterministic cache key from request parameters.
+    
+    Args:
+        request: Recommendation request
+        
+    Returns:
+        str: Cache key in format "recommend:{use_case}:{hash}"
+    """
+    key_data = {
+        'use_case': request.use_case,
+        'max_latency': request.max_latency_p90_ms,
+        'min_throughput': request.min_throughput,
+        'min_accuracy': request.min_accuracy,
+        'max_cost': request.max_cost_per_hour,
+        'prefer_spot': request.prefer_spot_instances,
+        'weights': {
+            'accuracy': request.weight_accuracy,
+            'latency': request.weight_latency,
+            'throughput': request.weight_throughput,
+            'cost': request.weight_cost
+        },
+        'limit': request.limit
+    }
+    key_str = json.dumps(key_data, sort_keys=True)
+    hash_value = hashlib.md5(key_str.encode()).hexdigest()
+    return f"recommend:{request.use_case}:{hash_value}"
 

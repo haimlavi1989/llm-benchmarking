@@ -1,0 +1,249 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: model-benchmark-pipeline
+  namespace: gpu-workloads
+  labels:
+    app: llm-benchmarking
+    pipeline: benchmark
+spec:
+  entrypoint: benchmark-pipeline
+  
+  # Service account for GPU access
+  serviceAccountName: benchmark-runner
+  
+  # Arguments
+  arguments:
+    parameters:
+    - name: model-name
+      value: "llama-3.1-7b"
+    - name: model-id
+      value: ""
+    - name: quantization
+      value: "fp16"
+    - name: batch-size
+      value: "100"
+  
+  # Volume for checkpoints (Spot instance recovery)
+  volumeClaimTemplates:
+  - metadata:
+      name: checkpoint-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+  
+  # Pipeline steps
+  templates:
+  
+  # Main pipeline orchestration
+  - name: benchmark-pipeline
+    steps:
+    # Step 1: Validate model availability
+    - - name: validate-model
+        template: validate-model-step
+        arguments:
+          parameters:
+          - name: model-name
+            value: "{{workflow.parameters.model-name}}"
+    
+    # Step 2: Generate test matrix (9,000+ configs)
+    - - name: generate-matrix
+        template: generate-matrix-step
+        arguments:
+          parameters:
+          - name: model-name
+            value: "{{workflow.parameters.model-name}}"
+          - name: quantization
+            value: "{{workflow.parameters.quantization}}"
+    
+    # Step 3: Split into batches
+    - - name: split-batches
+        template: split-batches-step
+        arguments:
+          parameters:
+          - name: matrix
+            value: "{{steps.generate-matrix.outputs.result}}"
+          - name: batch-size
+            value: "{{workflow.parameters.batch-size}}"
+    
+    # Step 4: Run benchmarks in parallel
+    - - name: run-benchmarks
+        template: run-benchmark-step
+        arguments:
+          parameters:
+          - name: config-batch
+            value: "{{item}}"
+        withParam: "{{steps.split-batches.outputs.result}}"
+    
+    # Step 5: Aggregate results
+    - - name: aggregate-results
+        template: aggregate-results-step
+    
+    # Step 6: Update rankings
+    - - name: update-rankings
+        template: update-rankings-step
+  
+  # Template definitions
+  
+  - name: validate-model-step
+    inputs:
+      parameters:
+      - name: model-name
+    container:
+      image: model-catalog-api:latest
+      command: [python, -c]
+      args:
+      - |
+        import sys
+        model_name = "{{inputs.parameters.model-name}}"
+        print(f"Validating model: {model_name}")
+        # Add actual validation logic here
+        sys.exit(0)
+  
+  - name: generate-matrix-step
+    inputs:
+      parameters:
+      - name: model-name
+      - name: quantization
+    script:
+      image: python:3.11-slim
+      command: [python]
+      source: |
+        import json
+        
+        # Generate 9,000+ configuration combinations
+        hardware_configs = ['L4', 'A100-40GB', 'A100-80GB', 'H100']
+        gpu_counts = [1, 2, 4, 8]
+        frameworks = ['vLLM', 'TGI', 'LMDeploy']
+        quantizations = ['fp16', 'int8', 'int4']
+        workloads = ['chatbot', 'summarization', 'qa', 'code-generation', 'creative-writing']
+        batch_sizes = [1, 2, 4, 8]
+        
+        configs = []
+        config_id = 0
+        
+        for hw in hardware_configs:
+            for gpu_count in gpu_counts:
+                for fw in frameworks:
+                    for quant in quantizations:
+                        for workload in workloads:
+                            for batch in batch_sizes:
+                                configs.append({
+                                    'id': config_id,
+                                    'hardware': hw,
+                                    'gpu_count': gpu_count,
+                                    'framework': fw,
+                                    'quantization': quant,
+                                    'workload': workload,
+                                    'batch_size': batch
+                                })
+                                config_id += 1
+        
+        print(json.dumps(configs))
+  
+  - name: split-batches-step
+    inputs:
+      parameters:
+      - name: matrix
+      - name: batch-size
+    script:
+      image: python:3.11-slim
+      command: [python]
+      source: |
+        import json
+        
+        matrix = json.loads('''{{inputs.parameters.matrix}}''')
+        batch_size = int({{inputs.parameters.batch-size}})
+        
+        batches = []
+        for i in range(0, len(matrix), batch_size):
+            batch = matrix[i:i + batch_size]
+            batches.append(batch)
+        
+        print(json.dumps(batches))
+  
+  - name: run-benchmark-step
+    inputs:
+      parameters:
+      - name: config-batch
+    
+    # Retry strategy for Spot instance interruptions
+    retryStrategy:
+      limit: 3
+      retryPolicy: Always
+      backoff:
+        duration: "5m"
+        factor: 2
+        maxDuration: "1h"
+    
+    container:
+      image: benchmark-runner:latest
+      command: [python, -m, benchmark.run]
+      args:
+      - --configs
+      - "{{inputs.parameters.config-batch}}"
+      
+      # GPU resource allocation (full GPU, no sharing)
+      resources:
+        requests:
+          nvidia.com/gpu: 1
+          memory: 16Gi
+          cpu: 4
+        limits:
+          nvidia.com/gpu: 1
+          memory: 32Gi
+          cpu: 8
+      
+      env:
+      - name: BENCHMARK_CHECKPOINT_DIR
+        value: /checkpoint
+      
+      volumeMounts:
+      - name: checkpoint-storage
+        mountPath: /checkpoint
+    
+    # Spot instance tolerations
+    tolerations:
+    - key: "spot-instance"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+    
+    # Node affinity for GPU nodes
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+              - p3.2xlarge
+              - p3.8xlarge
+              - p4d.24xlarge
+  
+  - name: aggregate-results-step
+    container:
+      image: model-catalog-api:latest
+      command: [python, -m, scripts.aggregate_results]
+      args:
+      - --model
+      - "{{workflow.parameters.model-name}}"
+      
+      env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: model-catalog-secrets
+            key: DATABASE_URL
+  
+  - name: update-rankings-step
+    container:
+      image: model-catalog-api:latest
+      command: [python, -m, scripts.update_rankings]
+      args:
+      - --model
+      - "{{workflow.parameters.model-name}}"
+

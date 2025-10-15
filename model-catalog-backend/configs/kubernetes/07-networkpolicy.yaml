@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: model-catalog-api-netpol
+  namespace: model-catalog
+  labels:
+    app: model-catalog-api
+spec:
+  podSelector:
+    matchLabels:
+      app: model-catalog-api
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules - allow traffic from ingress controller only
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  
+  # Egress rules
+  egress:
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Allow PostgreSQL in data-storage namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: data-storage
+    ports:
+    - protocol: TCP
+      port: 5432
+  
+  # Allow Redis in same namespace
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  
+  # Allow HTTPS egress for external APIs (HuggingFace, etc.)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+---
+# NetworkPolicy for default deny in namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: model-catalog
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
