@@ -16,13 +16,13 @@ The LLM Benchmarking Platform is a comprehensive system designed for large-scale
 
 ### Test Matrix Dimensions (9,000+ combinations per model)
 
-| Dimension | Examples | Description |
-|-----------|----------|-------------|
-| **Models & Versions** | GPT-4, Claude, Llama 3.1 | Different versions of language models |
-| **Hardware Configs** | L4, A100-80GB, H100 | GPU types and counts (1, 2, 4, 8) |
-| **Frameworks** | vLLM, TGI, LMDeploy | Different inference engines |
-| **Quantization** | FP16, INT8, INT4 | Numerical precision levels |
-| **Workload Patterns** | Concurrent requests, Batch sizes | Different usage scenarios |
+| Dimension             | Examples                         | Description                           |
+|-----------------------|----------------------------------|---------------------------------------|
+| **Models & Versions** | GPT-4, Claude, Llama 3.1         | Different versions of language models |
+| **Hardware Configs**  | L4, A100-80GB, H100              | GPU types and counts (1, 2, 4, 8)     |
+| **Frameworks**        | vLLM, TGI, LMDeploy              | Different inference engines           |
+| **Quantization**      | FP16, INT8, INT4                 | Numerical precision levels            |
+| **Workload Patterns** | Concurrent requests, Batch sizes | Different usage scenarios             |
 
 ## Technical Architecture
 
