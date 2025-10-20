@@ -1,73 +1,117 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
+# Kubernetes resource that defines firewall rules for pod-to-pod communication
+
 metadata:
   name: model-catalog-api-netpol
+  # NetworkPolicy identifier
+  
   namespace: model-catalog
+  # Applied to pods in this namespace only
+  
   labels:
     app: model-catalog-api
+  # Labels for organization
+
 spec:
   podSelector:
     matchLabels:
       app: model-catalog-api
+  # This policy applies to pods with label app: model-catalog-api
+  
   policyTypes:
   - Ingress
-  - Egress
+  # Controls which pods can send traffic TO our pods
   
+  - Egress
+  # Controls which pods our pods can send traffic TO
+
   # Ingress rules - allow traffic from ingress controller only
+  
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
           name: ingress-nginx
+    # Allows traffic only from pods in ingress-nginx namespace
+    
     ports:
     - protocol: TCP
       port: 8000
+    # Only allows TCP traffic on port 8000
   
-  # Egress rules
+  # Egress rules - controls outbound traffic from these pods
+  
   egress:
   # Allow DNS resolution
+  
   - to:
     - namespaceSelector:
         matchLabels:
           name: kube-system
+    # Allows traffic to pods in kube-system namespace (where DNS runs)
+    
     ports:
     - protocol: UDP
       port: 53
+    # Only allows UDP on port 53 (DNS protocol)
   
   # Allow PostgreSQL in data-storage namespace
+  
   - to:
     - namespaceSelector:
         matchLabels:
           name: data-storage
+    # Allows traffic to data-storage namespace
+    
     ports:
     - protocol: TCP
       port: 5432
+    # Only allows TCP on port 5432 (PostgreSQL default port)
   
   # Allow Redis in same namespace
+  
   - to:
     - podSelector:
         matchLabels:
           app: redis
+    # Allows traffic to pods labeled app: redis (within same namespace)
+    
     ports:
     - protocol: TCP
       port: 6379
+    # Only allows TCP on port 6379 (Redis default port)
   
   # Allow HTTPS egress for external APIs (HuggingFace, etc.)
+  
   - to:
     - namespaceSelector: {}
+    # Empty selector means allow to any namespace
+    
     ports:
     - protocol: TCP
       port: 443
+    # Only allows TCP on port 443 (HTTPS)
+
 ---
 # NetworkPolicy for default deny in namespace
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-all
+  # Default deny policy - blocks all traffic not explicitly allowed
+  
   namespace: model-catalog
+  # Applied to entire namespace
+
 spec:
   podSelector: {}
+  # Empty selector matches ALL pods in namespace
+  
   policyTypes:
   - Ingress
+  # Denies all inbound traffic to any pod in namespace
+  
   - Egress
-
+  # Denies all outbound traffic from any pod in namespace

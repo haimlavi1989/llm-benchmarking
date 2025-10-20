@@ -1,39 +1,76 @@
 apiVersion: v1
 kind: Service
+# Kubernetes resource that exposes pods as a network endpoint
+
 metadata:
   name: model-catalog-api
+  # Service name - used by other pods to reach this service via DNS
+  
   namespace: model-catalog
+  # Deployed in same namespace as the deployment
+  
   labels:
     app: model-catalog-api
+  # Labels for organizing and selecting services
+  
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # AWS-specific annotation requesting Network Load Balancer - ignored by non-AWS clusters
+
 spec:
   type: ClusterIP
+  # ClusterIP exposes service only within cluster - not accessible from outside
+  
   selector:
     app: model-catalog-api
+  # Routes traffic to all pods matching this label selector
+  
   ports:
   - name: http
+    # Semantic name for this port mapping
+    
     port: 80
+    # External port - clients inside cluster connect to service on port 80
+    
     targetPort: http
+    # Maps to container port named "http" (which is 8000 from deployment)
+    
     protocol: TCP
+    # Uses TCP protocol for communication
+  
   sessionAffinity: None
+  # No session stickiness - each request can go to any pod replica
+
 ---
 # Headless service for StatefulSet if needed
 apiVersion: v1
 kind: Service
 metadata:
   name: model-catalog-api-headless
+  # Separate service with different routing behavior
+  
   namespace: model-catalog
   labels:
     app: model-catalog-api
+  # Same label selector as regular service
+
 spec:
   type: ClusterIP
+  # Still ClusterIP type but configured differently below
+  
   clusterIP: None
+  # Headless service - no virtual IP created, DNS returns individual pod IPs instead
+  
   selector:
     app: model-catalog-api
+  # Routes to same pods as regular service
+  
   ports:
   - name: http
     port: 8000
+    # Headless service uses container port directly (8000)
+    
     targetPort: http
+    # Routes to container port named "http"
+    
     protocol: TCP
-

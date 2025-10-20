@@ -1,9 +1,19 @@
 apiVersion: v1
+# Kubernetes API version for Namespace resources
+
 kind: Namespace
+# Resource type - creates an isolated cluster subdivision
+
 metadata:
   name: model-catalog
+  # Namespace identifier - all resources in this namespace are isolated from others
+  
   labels:
     name: model-catalog
+    # Label for identifying this namespace by name
+    
     environment: production
+    # Marks this as a production namespace - used for filtering and access control
+    
     app: llm-benchmarking
-
+    # Tags this namespace as belonging to the LLM benchmarking application

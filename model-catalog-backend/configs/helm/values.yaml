@@ -1,86 +1,169 @@
 # Model Catalog API Deployment Configuration
 
 replicaCount: 3
+# Number of pod replicas to run - provides high availability and load distribution
 
 image:
   repository: model-catalog-api
+  # Docker image repository name
+  
   pullPolicy: IfNotPresent
+  # Uses cached image if available locally, only pulls if missing - reduces registry load
+  
   tag: "latest"
+  # Image version tag - WARNING: "latest" is unreliable in production, use specific versions
 
 nameOverride: ""
+# Overrides the chart name in generated resource names - leave empty to use default
+
 fullnameOverride: ""
+# Completely replaces generated resource name - leave empty to use default
 
 serviceAccount:
   create: true
+  # Creates a new ServiceAccount for this deployment
+  
   annotations: {}
+  # Annotations to attach to the ServiceAccount
+  
   name: ""
+  # ServiceAccount name - auto-generated if empty
 
 podAnnotations:
   prometheus.io/scrape: "true"
+  # Signals Prometheus to collect metrics from this pod
+  
   prometheus.io/port: "8000"
+  # Tells Prometheus which port has metrics endpoint
+  
   prometheus.io/path: "/metrics"
+  # Path where metrics are exposed
 
 podSecurityContext:
   runAsNonRoot: true
+  # Pod must run with non-root user for security
+  
   runAsUser: 1000
+  # Pod runs as user ID 1000
+  
   fsGroup: 1000
+  # File system operations use group ID 1000
 
 securityContext:
   allowPrivilegeEscalation: false
+  # Container cannot gain additional Linux capabilities
+  
   readOnlyRootFilesystem: true
+  # Root filesystem is read-only - prevents tampering with system files
+  
   runAsNonRoot: true
+  # Enforces non-root execution
+  
   runAsUser: 1000
+  # Container runs as user ID 1000
+  
   capabilities:
     drop:
     - ALL
+  # Removes all Linux capabilities - minimizes attack surface
 
 service:
   type: ClusterIP
+  # ClusterIP exposes service only within cluster - not accessible from outside
+  
   port: 80
+  # External port - cluster internal clients connect on port 80
+  
   targetPort: 8000
+  # Maps to container port 8000 where application listens
+  
   annotations: {}
+  # Service-level annotations
 
 ingress:
   enabled: true
+  # Enables ingress creation - set to false to disable
+  
   className: "nginx"
+  # Uses Nginx ingress controller for routing
+  
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Redirects HTTP requests to HTTPS
+    
     nginx.ingress.kubernetes.io/limit-rps: "100"
+    # Limits to 100 requests per second
+    
     nginx.ingress.kubernetes.io/limit-connections: "50"
+    # Limits concurrent connections per IP to 50
+    
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Uses cert-manager to provision TLS certificates from Let's Encrypt
+  
   hosts:
     - host: api.model-catalog.example.com
+      # External domain name for accessing this API
+      
       paths:
         - path: /
+          # Routes all paths starting with /
+          
           pathType: Prefix
+          # Matches any request starting with the path
+  
   tls:
     - secretName: model-catalog-tls
+      # Kubernetes secret storing TLS certificate and key
+      
       hosts:
         - api.model-catalog.example.com
+        # HTTPS applies to this domain
 
 resources:
   requests:
     cpu: 1000m
+    # Kubernetes reserves 1 CPU core for this pod
+    
     memory: 2Gi
+    # Kubernetes reserves 2GB RAM for this pod
+  
   limits:
     cpu: 2000m
+    # Pod cannot use more than 2 CPU cores - throttled if exceeded
+    
     memory: 4Gi
+    # Pod cannot use more than 4GB RAM - killed if exceeded
 
 autoscaling:
   enabled: true
+  # Enables Horizontal Pod Autoscaler - automatically scales replicas based on metrics
+  
   minReplicas: 3
+  # Always runs at least 3 pods
+  
   maxReplicas: 10
+  # Never scales beyond 10 pods
+  
   targetCPUUtilizationPercentage: 75
+  # Scales up when average CPU hits 75% of requests
+  
   targetMemoryUtilizationPercentage: 80
+  # Scales up when average memory hits 80% of requests
 
 nodeSelector: {}
+# Constrains pods to nodes with specific labels - empty means no constraints
 
 tolerations: []
+# Allows pods to tolerate node taints - empty means no special tolerations
 
 affinity:
   podAntiAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
+    # Pod scheduling prefers different nodes but allows same node if necessary
+    
     - weight: 100
+      # Higher weight = stronger preference
+      
       podAffinityTerm:
         labelSelector:
           matchExpressions:
@@ -88,70 +171,148 @@ affinity:
             operator: In
             values:
             - model-catalog-api
+        # Spreads replicas of model-catalog-api across different nodes
+        
         topologyKey: kubernetes.io/hostname
+        # Spreads based on hostname - ensures different physical nodes
 
 # Application configuration
+
 config:
   appName: "Model Catalog Backend"
+  # Application identifier displayed in logs
+  
   version: "0.1.0"
+  # Application version
+  
   debug: "false"
+  # Disables debug mode in production - set to "true" only for development
+  
   apiV1Str: "/api/v1"
+  # API version prefix used in URL paths
   
   # Database
+  
   databaseHost: "postgresql.data-storage.svc.cluster.local"
+  # PostgreSQL service DNS name - data-storage namespace, cluster-local domain
+  
   databasePort: "5432"
+  # PostgreSQL default port
+  
   databaseName: "model_catalog"
+  # Database name to connect to
   
   # Redis
+  
   redisHost: "redis.model-catalog.svc.cluster.local"
+  # Redis service DNS name - same namespace
+  
   redisPort: "6379"
+  # Redis default port
   
   # CORS
+  
   corsOrigins: '["http://localhost:3000","http://localhost:8080","https://api.example.com"]'
+  # JSON array of allowed cross-origin domains - localhost for dev, api.example.com for production
   
   # Performance
+  
   workers: "4"
+  # Number of worker processes - tune based on expected concurrency
+  
   maxConnections: "100"
+  # Maximum concurrent connections to handle
+  
   poolSize: "20"
+  # Database connection pool size
   
   # Logging
+  
   logLevel: "info"
+  # Log verbosity - use "debug" for troubleshooting, "error" for production only
+  
   logFormat: "json"
+  # JSON format enables structured logging and easier parsing by log collectors
 
 # Secrets (use External Secrets in production)
 secrets:
   databaseUser: "model_catalog_user"
+  # PostgreSQL username
+  
   databasePassword: "CHANGE_ME_IN_PRODUCTION"
+  # PostgreSQL password - MUST be changed before production deployment
+  
   secretKey: "CHANGE_ME_IN_PRODUCTION_USE_STRONG_KEY"
+  # Application secret key for sessions/tokens - generate strong random string
+  
   redisPassword: "CHANGE_ME_IN_PRODUCTION"
+  # Redis password - MUST be changed before production deployment
+
+# CRITICAL: Never store passwords in YAML files - use External Secrets Operator or sealed-secrets
 
 # Health checks
+
 livenessProbe:
   httpGet:
     path: /api/v1/health
+    # Health check endpoint path
+    
     port: http
+    # Checks on port 8000 (named "http")
+  
   initialDelaySeconds: 30
+  # Waits 30 seconds after pod start before first check - allows app startup time
+  
   periodSeconds: 10
+  # Checks every 10 seconds
+  
   timeoutSeconds: 5
+  # Fails check if response takes over 5 seconds
+  
   successThreshold: 1
+  # Needs 1 successful check to mark pod as alive
+  
   failureThreshold: 3
+  # Kills pod after 3 consecutive failures (30 seconds of downtime)
 
 readinessProbe:
   httpGet:
     path: /api/v1/health
     port: http
+  # Checks if pod is ready to accept traffic
+  
   initialDelaySeconds: 10
+  # Starts checking 10 seconds after pod creation - faster than liveness
+  
   periodSeconds: 5
+  # Checks every 5 seconds - more frequent to quickly remove unhealthy pods from load balancer
+  
   timeoutSeconds: 3
+  # Fails if response takes over 3 seconds
+  
   successThreshold: 1
+  # Needs 1 successful check
+  
   failureThreshold: 3
+  # Removes pod from service after 3 failed checks - 15 seconds max
 
 startupProbe:
   httpGet:
     path: /api/v1/health
     port: http
+  # Checks if application finished initializing
+  
   initialDelaySeconds: 0
+  # Starts immediately - doesn't wait
+  
   periodSeconds: 10
+  # Checks every 10 seconds
+  
   timeoutSeconds: 3
+  # Fails if response takes over 3 seconds
+  
   successThreshold: 1
+  # Needs 1 successful check
+  
   failureThreshold: 30
+  # Allows 300 seconds total (30 checks * 10 seconds) for app startup before killing pod

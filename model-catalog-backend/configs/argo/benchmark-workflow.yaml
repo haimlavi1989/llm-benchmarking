@@ -2,38 +2,58 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   name: model-benchmark-pipeline
+  # Workflow identifier - must be unique in namespace
+  
   namespace: gpu-workloads
+  # Runs in gpu-workloads namespace with spot instance nodes
+  
   labels:
     app: llm-benchmarking
     pipeline: benchmark
+  # Labels for organizing and filtering workflows
+
 spec:
   entrypoint: benchmark-pipeline
+  # Entry point template - first template to execute
   
   # Service account for GPU access
   serviceAccountName: benchmark-runner
+  # WARNING: Ensure benchmark-runner ServiceAccount exists with permissions to access secrets and write results
   
-  # Arguments
+  # Arguments - workflow input parameters
   arguments:
     parameters:
     - name: model-name
       value: "llama-3.1-7b"
+      # Model to benchmark
+    
     - name: model-id
       value: ""
+      # Optional model identifier from catalog
+    
     - name: quantization
       value: "fp16"
+      # Quantization format - affects performance/accuracy tradeoff
+    
     - name: batch-size
       value: "100"
+      # How many configs to process in each parallel batch
   
   # Volume for checkpoints (Spot instance recovery)
   volumeClaimTemplates:
   - metadata:
       name: checkpoint-storage
+      # Persistent volume for saving checkpoint state
+    
     spec:
       accessModes: [ "ReadWriteOnce" ]
+      # Only one pod can write at a time - prevents concurrent write corruption
+      
       resources:
         requests:
           storage: 10Gi
-  
+      # WARNING: 10Gi might be insufficient for 9000+ configs and results - calculate actual size needed
+
   # Pipeline steps
   templates:
   
@@ -76,6 +96,7 @@ spec:
           - name: config-batch
             value: "{{item}}"
         withParam: "{{steps.split-batches.outputs.result}}"
+        # WARNING: Generates 90 parallel pods (9000 configs / batch-size 100) - verify cluster has capacity
     
     # Step 5: Aggregate results
     - - name: aggregate-results
@@ -93,6 +114,8 @@ spec:
       - name: model-name
     container:
       image: model-catalog-api:latest
+      # WARNING: Use specific version (model-catalog-api:0.1.0) not "latest" - unpredictable behavior
+      
       command: [python, -c]
       args:
       - |
@@ -109,6 +132,8 @@ spec:
       - name: quantization
     script:
       image: python:3.11-slim
+      # Generates 4*4*3*3*5*6 = 4,320 configs - multiplied by model variations
+      
       command: [python]
       source: |
         import json
@@ -142,6 +167,7 @@ spec:
                                 config_id += 1
         
         print(json.dumps(configs))
+        # WARNING: Output is very large JSON - could exceed Argo max output size (1MB default)
   
   - name: split-batches-step
     inputs:
@@ -172,14 +198,25 @@ spec:
     # Retry strategy for Spot instance interruptions
     retryStrategy:
       limit: 3
+      # WARNING: Retries 3 times total - if all 3 fail, loses that batch results
+      
       retryPolicy: Always
+      # Retries on any failure including pod eviction
+      
       backoff:
         duration: "5m"
+        # Waits 5 minutes before first retry
+        
         factor: 2
+        # Each retry waits 2x longer (5m, 10m, 20m)
+        
         maxDuration: "1h"
+        # Caps retry delay at 1 hour
     
     container:
       image: benchmark-runner:latest
+      # WARNING: Use specific version (benchmark-runner:0.1.0) - latest is unpredictable
+      
       command: [python, -m, benchmark.run]
       args:
       - --configs
@@ -189,20 +226,31 @@ spec:
       resources:
         requests:
           nvidia.com/gpu: 1
+          # Requests 1 full GPU - no time-sharing or preemption
+          
           memory: 16Gi
+          # Guarantees 16GB RAM for benchmark
+          
           cpu: 4
+          # Guarantees 4 CPU cores
+        
         limits:
           nvidia.com/gpu: 1
           memory: 32Gi
+          # WARNING: 2x memory limit allows bursting but pod killed if exceeded
+          
           cpu: 8
+          # WARNING: CPU throttled if limit exceeded - may artificially slow benchmark
       
       env:
       - name: BENCHMARK_CHECKPOINT_DIR
         value: /checkpoint
+      # Points to persistent checkpoint directory for Spot recovery
       
       volumeMounts:
       - name: checkpoint-storage
         mountPath: /checkpoint
+      # Mounts PVC for saving progress between retries/Spot terminations
     
     # Spot instance tolerations
     tolerations:
@@ -210,23 +258,34 @@ spec:
       operator: "Equal"
       value: "true"
       effect: "NoSchedule"
+    # WARNING: Requires nodes to have spot-instance=true taint - verify taint exists
     
     # Node affinity for GPU nodes
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
+          # Pod fails to schedule if no matching nodes exist
+          
           nodeSelectorTerms:
           - matchExpressions:
             - key: node.kubernetes.io/instance-type
               operator: In
               values:
               - p3.2xlarge
+              # 8x V100 GPU
+              
               - p3.8xlarge
+              # 32x V100 GPU
+              
               - p4d.24xlarge
+              # 8x A100-40GB GPU
+          # WARNING: Only schedules on these exact AWS instance types - verify availability/cost
   
   - name: aggregate-results-step
     container:
       image: model-catalog-api:latest
+      # WARNING: Use specific version
+      
       command: [python, -m, scripts.aggregate_results]
       args:
       - --model
@@ -237,13 +296,17 @@ spec:
         valueFrom:
           secretKeyRef:
             name: model-catalog-secrets
+            # WARNING: Secret must exist in gpu-workloads namespace with DATABASE_URL key
+            
             key: DATABASE_URL
+      # Pulls database URL from secret for writing aggregated results
   
   - name: update-rankings-step
     container:
       image: model-catalog-api:latest
+      # WARNING: Use specific version
+      
       command: [python, -m, scripts.update_rankings]
       args:
       - --model
       - "{{workflow.parameters.model-name}}"
-

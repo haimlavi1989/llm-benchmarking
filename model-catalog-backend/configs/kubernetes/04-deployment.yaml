@@ -1,112 +1,200 @@
 apiVersion: apps/v1
 kind: Deployment
+# Specifies this is a Deployment resource - manages replica pods and rolling updates
+
 metadata:
   name: model-catalog-api
+  # Unique identifier for this deployment
   namespace: model-catalog
+  # Isolates this deployment in its own namespace to prevent conflicts with other workloads
   labels:
     app: model-catalog-api
     version: v1
+  # Labels for organizing and selecting related resources
+
 spec:
   replicas: 3
+  # Runs 3 identical pod instances for high availability and load distribution
+  
   strategy:
     type: RollingUpdate
+    # Replaces old pods with new ones gradually, avoiding downtime
     rollingUpdate:
       maxSurge: 1
+      # Creates 1 extra pod during updates, so you temporarily have 4 pods
       maxUnavailable: 0
+      # Keeps all pods available during updates - never goes below 3 running pods
+
   selector:
     matchLabels:
       app: model-catalog-api
+  # Tells Kubernetes which pods belong to this deployment by matching labels
+
   template:
     metadata:
       labels:
         app: model-catalog-api
         version: v1
+      # Labels applied to every pod created from this template
+      
       annotations:
         prometheus.io/scrape: "true"
+        # Enables Prometheus to automatically scrape metrics from this pod
         prometheus.io/port: "8000"
+        # Tells Prometheus which port has the metrics endpoint
         prometheus.io/path: "/metrics"
+        # Specifies the path where metrics are exposed
+
     spec:
       serviceAccountName: model-catalog-api
+      # Grants the pod permissions to access Kubernetes API using this service account
+      
       securityContext:
         runAsNonRoot: true
+        # Pod must run with a non-root user for security
         runAsUser: 1000
+        # Pod runs as user ID 1000 instead of root
         fsGroup: 1000
-      
+        # File system operations use group ID 1000 for permission control
+
       containers:
       - name: api
+        # Names this container instance
+        
         image: model-catalog-api:latest
+        # Pulls this Docker image from your registry
+        
         imagePullPolicy: IfNotPresent
+        # Uses local image cache if available, only pulls if image doesn't exist locally
         
         ports:
         - name: http
+          # Gives this port a semantic name for reference
           containerPort: 8000
+          # Application listens on port 8000 inside the container
           protocol: TCP
-        
+
         envFrom:
         - configMapRef:
             name: model-catalog-config
+          # Injects all key-value pairs from ConfigMap as environment variables
+          
         - secretRef:
             name: model-catalog-secrets
-        
+          # Injects all secrets from the secret object as environment variables
+
         resources:
           requests:
             cpu: 1000m
+            # Kubernetes reserves 1 CPU core for this pod
             memory: 2Gi
+            # Kubernetes reserves 2GB RAM for this pod
+          
           limits:
             cpu: 2000m
+            # Pod cannot use more than 2 CPU cores - gets throttled if exceeded
             memory: 4Gi
-        
+            # Pod cannot use more than 4GB RAM - gets killed if exceeded
+
         livenessProbe:
           httpGet:
             path: /api/v1/health
             port: http
+          # Checks if pod is alive by calling this health endpoint
+          
           initialDelaySeconds: 30
+          # Waits 30 seconds after pod starts before checking (app startup time)
+          
           periodSeconds: 10
+          # Checks every 10 seconds
+          
           timeoutSeconds: 5
+          # Considers the check failed if response takes over 5 seconds
+          
           successThreshold: 1
+          # Needs 1 successful check to mark pod as healthy
+          
           failureThreshold: 3
-        
+          # Kills pod after 3 consecutive failed checks (30 seconds of failures)
+
         readinessProbe:
           httpGet:
             path: /api/v1/health
             port: http
+          # Checks if pod is ready to accept traffic
+          
           initialDelaySeconds: 10
+          # Starts checking 10 seconds after pod creation
+          
           periodSeconds: 5
+          # Checks every 5 seconds
+          
           timeoutSeconds: 3
+          # Fails the check if response takes over 3 seconds
+          
           successThreshold: 1
+          # Needs 1 successful check to mark pod as ready
+          
           failureThreshold: 3
-        
+          # Removes pod from load balancer after 3 failed checks
+
         startupProbe:
           httpGet:
             path: /api/v1/health
             port: http
+          # Checks if application finished starting up
+          
           initialDelaySeconds: 0
+          # Starts checking immediately
+          
           periodSeconds: 10
+          # Checks every 10 seconds
+          
           timeoutSeconds: 3
+          # Fails if response takes over 3 seconds
+          
           successThreshold: 1
+          # Needs 1 successful check
+          
           failureThreshold: 30
-        
+          # Allows up to 30 checks (300 seconds total) for startup before killing pod
+
         securityContext:
           allowPrivilegeEscalation: false
+          # Pod cannot gain additional Linux capabilities
+          
           readOnlyRootFilesystem: true
+          # Root filesystem is read-only - prevents container from writing to system files
+          
           runAsNonRoot: true
+          # Enforces pod runs as non-root user
+          
           runAsUser: 1000
+          # Runs as user ID 1000
+          
           capabilities:
             drop:
             - ALL
-        
+          # Removes all Linux capabilities - minimizes attack surface
+
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+          # Mounts temporary storage at /tmp path in container
+          
         - name: cache
           mountPath: /app/.cache
-      
+          # Mounts cache storage at /app/.cache path in container
+
       volumes:
       - name: tmp
         emptyDir: {}
+        # Creates temporary storage that exists only while pod runs - cleared when pod stops
+        
       - name: cache
         emptyDir: {}
-      
+        # Creates cache storage space - also cleared when pod terminates
+
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -119,12 +207,20 @@ spec:
                   values:
                   - model-catalog-api
               topologyKey: kubernetes.io/hostname
+          # Spreads the 3 replicas across different nodes - improves fault tolerance
+
 ---
 apiVersion: v1
 kind: ServiceAccount
+# Defines identity and permissions for pods running this deployment
+
 metadata:
   name: model-catalog-api
+  # ServiceAccount name matches the one referenced in deployment
+  
   namespace: model-catalog
+  # Created in same namespace as deployment
+  
   labels:
     app: model-catalog-api
-
+  # Labels for organization

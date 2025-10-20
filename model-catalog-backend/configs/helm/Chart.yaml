@@ -1,17 +1,39 @@
 apiVersion: v2
+# Helm chart API version - v2 is current standard (v1 is deprecated)
+
 name: model-catalog-backend
+# Chart name - used to identify this chart in repositories
+
 description: A Helm chart for Model Catalog Backend
+# Human-readable description of what this chart deploys
+
 type: application
+# Chart type - "application" deploys workloads, "library" provides reusable templates
+
 version: 0.1.0
+# Chart version - increment when you change templates or values (semantic versioning)
+
 appVersion: "0.1.0"
+# Application version - version of model-catalog-backend app this chart deploys
+
 keywords:
   - model-catalog
+  # Search keywords for discovering chart in Helm repositories
+  
   - ml
   - api
   - fastapi
+
 home: https://github.com/your-org/model-catalog-backend
+# Project homepage URL - displayed in Helm Hub and `helm search` output
+
 sources:
   - https://github.com/your-org/model-catalog-backend
+# Source code repository URL - links to where code is maintained
+
 maintainers:
   - name: Model Catalog Team
+    # Team or person responsible for maintaining this chart
+    
     email: team@modelcatalog.com
+    # Contact email for questions or issues about the chart

@@ -1,48 +1,93 @@
 version: '3.8'
+# Docker Compose file format version - 3.8 supports most modern features
 
 services:
   db:
     image: postgres:15
+    # Uses PostgreSQL 15 official image
+    
     environment:
       POSTGRES_DB: model_catalog
+      # Database name created automatically on startup
+      
       POSTGRES_USER: user
+      # WARNING: Hardcoded credentials - use .env file with docker-compose --env-file flag in production
+      
       POSTGRES_PASSWORD: password
+      # WARNING: Weak password - generate strong random password for production
+    
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Persists database data across container restarts - survives `docker-compose down`
+    
     ports:
       - "5432:5432"
+      # Exposes PostgreSQL on localhost:5432 - allows direct DB client connections
+    
     restart: unless-stopped
+    # Restarts container if it crashes - won't restart if you explicitly stop it
 
   redis:
     image: redis:7-alpine
+    # Redis 7 with alpine linux - lightweight image for caching
+    
     ports:
       - "6379:6379"
+      # Exposes Redis on localhost:6379 - allows direct Redis connections
+    
     restart: unless-stopped
+    # Auto-restarts on crash
 
   web:
     build: .
+    # Builds Docker image from Dockerfile in current directory
+    
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+    # Starts FastAPI app on port 8000, accessible from outside container (0.0.0.0)
+    
     ports:
       - "8000:8000"
+      # Exposes web app on localhost:8000 for direct access
+    
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/model_catalog
+      # WARNING: Hardcoded credentials in plain text - move to .env file, use docker-compose config instead
+      # Service name "db" resolves automatically within Docker network
+      
       - REDIS_URL=redis://redis:6379
+      # Service name "redis" resolves automatically - Docker DNS handles this
+    
     depends_on:
       - db
       - redis
+      # Starts db and redis before web, but doesn't wait for them to be ready - add health checks for proper wait logic
+    
     restart: unless-stopped
 
   nginx:
     image: nginx:alpine
+    # Nginx web server with alpine linux - lightweight reverse proxy
+    
     ports:
       - "80:80"
+      # HTTP traffic on port 80
+      
       - "443:443"
+      # HTTPS traffic on port 443
+    
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
+      # Mounts local nginx.conf into container - hot-reloadable but requires restart
+      
       - ./ssl:/etc/nginx/ssl
+      # Mounts SSL certificates directory - ensure certificates exist before running
+    
     depends_on:
       - web
+      # WARNING: depends_on only starts web first, doesn't wait for web to be healthy - add health checks
+    
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  # Named volume - persists data even if container deleted, survives `docker-compose down -v`

@@ -1,47 +1,96 @@
 apiVersion: networking.k8s.io/v1
+# Kubernetes API version for Ingress resources
+
 kind: Ingress
+# Resource type - routes external HTTP/HTTPS traffic to services inside cluster
+
 metadata:
   name: model-catalog-ingress
+  # Ingress identifier
+  
   namespace: model-catalog
+  # Created in same namespace as deployment and service
+  
   labels:
     app: model-catalog-api
+  # Labels for organization
+  
   annotations:
-    # Nginx ingress annotations
+    # Nginx ingress annotations - configurations specific to Nginx ingress controller
+    
     nginx.ingress.kubernetes.io/rewrite-target: /
+    # Strips the matched path prefix and rewrites requests - /api/v1/models becomes /v1/models
+    
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Automatically redirects HTTP requests to HTTPS
+    
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Forcefully redirects all non-HTTPS traffic to HTTPS
     
-    # Rate limiting
+    # Rate limiting - protects backend from overwhelming traffic
+    
     nginx.ingress.kubernetes.io/limit-rps: "100"
+    # Limits to 100 requests per second - excess requests get 429 responses
+    
     nginx.ingress.kubernetes.io/limit-connections: "50"
+    # Limits each IP to 50 concurrent connections
     
-    # Timeouts
+    # Timeouts - controls how long Nginx waits for various operations
+    
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    # Waits maximum 30 seconds to establish connection to backend
+    
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Waits maximum 60 seconds to send data to backend
+    
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Waits maximum 60 seconds to read response from backend
     
-    # CORS (if not handled by app)
+    # CORS - allows cross-origin requests from browsers
+    
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # Enables CORS header handling at ingress level
     
-    # SSL/TLS
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    # Permits these HTTP methods from cross-origin requests
+    
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # Allows requests from any origin - very permissive, consider restricting to specific domains
+    
+    # SSL/TLS - automatic certificate management
+    
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Uses cert-manager to automatically provision and renew TLS certificates from Let's Encrypt production
+
 spec:
   ingressClassName: nginx
+  # Specifies Nginx as the ingress controller - routes traffic through Nginx ingress controller
+
   tls:
   - hosts:
     - api.model-catalog.example.com
+    # HTTPS certificate applies to this domain
+    
     secretName: model-catalog-tls
+    # cert-manager stores the TLS certificate in this Kubernetes secret
+
   rules:
   - host: api.model-catalog.example.com
+    # This entire rule block applies only to requests for this domain
+    
     http:
       paths:
       - path: /
+        # Matches all paths starting with /
+        
         pathType: Prefix
+        # Routes any request beginning with / to the backend (matches everything)
+        
         backend:
           service:
             name: model-catalog-api
+            # Routes to the service named model-catalog-api
+            
             port:
               number: 80
-
+              # Connects to service port 80 (which maps to container port 8000)

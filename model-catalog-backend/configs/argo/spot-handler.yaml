@@ -2,7 +2,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spot-termination-handler
+  # ConfigMap stores the handler script
+  
   namespace: gpu-workloads
+  # Created in gpu-workloads namespace where spot nodes run
+
 data:
   handler.sh: |
     #!/bin/bash
@@ -14,9 +18,11 @@ data:
     while true; do
       # Check for AWS spot termination notice (2 minute warning)
       HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://169.254.169.254/latest/meta-data/spot/termination-time)
+      # AWS metadata service returns 200 when termination is scheduled, 404 if not
       
       if [ "$HTTP_CODE" == "200" ]; then
         echo "⚠️  SPOT TERMINATION NOTICE RECEIVED!"
+        # Got 2-minute warning from AWS before spot instance terminates
         
         # Get termination time
         TERMINATION_TIME=$(curl -s http://169.254.169.254/latest/meta-data/spot/termination-time)
@@ -26,14 +32,17 @@ data:
         echo "Triggering checkpoint for running workflows..."
         kubectl get workflows -n gpu-workloads -l state=Running -o name | \
           xargs -I {} kubectl patch {} --type=merge -p '{"spec":{"suspend":true}}'
+        # Suspends Argo Workflows so they can be resumed on different node after spot termination
         
         # Save checkpoint metadata
         echo "Saving checkpoint metadata..."
         kubectl annotate node $NODE_NAME checkpoint-timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        # Tags node with checkpoint time for audit trail
         
         # Drain the node
         echo "Draining node $NODE_NAME..."
         kubectl drain $NODE_NAME --ignore-daemonsets --delete-emptydir-data --force
+        # Evicts all pods from node gracefully - daemonsets stay, temporary data deleted
         
         echo "✅ Graceful shutdown complete. Ready for termination."
         break
@@ -41,95 +50,134 @@ data:
       
       # Check every 5 seconds
       sleep 5
+      # Polls every 5 seconds - 24 checks per 2-minute warning window
     done
+
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: spot-termination-handler
+  # DaemonSet runs one pod per node automatically
+  
   namespace: gpu-workloads
   labels:
     app: spot-termination-handler
+
 spec:
   selector:
     matchLabels:
       app: spot-termination-handler
+  
   template:
     metadata:
       labels:
         app: spot-termination-handler
+    
     spec:
       hostNetwork: true
+      # Pod can access host network - needed to reach AWS metadata service (169.254.169.254)
+      
       serviceAccountName: spot-handler
+      # Uses ServiceAccount with permissions to drain nodes and patch workflows
       
       # Only run on spot instance nodes
       nodeSelector:
         node.kubernetes.io/instance-lifecycle: spot
+      # WARNING: This label must exist on spot nodes - verify with `kubectl get nodes --show-labels`
+      # If nodes don't have this label, add it manually or configure node auto-labeling
       
       tolerations:
       - key: "spot-instance"
         operator: "Exists"
         effect: "NoSchedule"
+      # WARNING: This taint must exist on spot nodes or pod won't schedule
+      # If spot nodes aren't tainted, remove this toleration or add taints to nodes
       
       containers:
       - name: handler
         image: bitnami/kubectl:latest
+        # WARNING: "latest" tag - use specific version (e.g., bitnami/kubectl:1.28.0) for reproducibility
+        
         command: ["/bin/bash"]
         args: ["/scripts/handler.sh"]
+        # Runs handler script from ConfigMap mount
         
         env:
         - name: NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        # Injects pod's node name into NODE_NAME environment variable for draining
         
         volumeMounts:
         - name: handler-script
           mountPath: /scripts
+        # Mounts ConfigMap script into /scripts directory
         
         securityContext:
           privileged: true
+          # WARNING: privileged=true grants all capabilities - only needed if accessing host devices
+          # Consider removing if not strictly necessary, use specific capabilities instead (NET_ADMIN, SYS_ADMIN, etc.)
       
       volumes:
       - name: handler-script
         configMap:
           name: spot-termination-handler
           defaultMode: 0755
+        # ConfigMap mounted with execute permissions (0755)
+
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: spot-handler
+  # ServiceAccount grants pod permissions to access Kubernetes API
+  
   namespace: gpu-workloads
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: spot-handler-role
+  # ClusterRole defines permissions cluster-wide
+
 rules:
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "patch", "update"]
+  # Allows reading nodes and updating/patching them for annotations
+  
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "delete"]
+  # Allows listing and deleting pods during node drain
+  
 - apiGroups: [""]
   resources: ["pods/eviction"]
   verbs: ["create"]
+  # Creates pod eviction requests - graceful pod termination mechanism
+  
 - apiGroups: ["argoproj.io"]
   resources: ["workflows"]
   verbs: ["get", "list", "patch", "update"]
+  # Allows reading and patching Argo Workflows to suspend them on termination notice
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: spot-handler-binding
+
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: spot-handler-role
+  # References the ClusterRole above
+
 subjects:
 - kind: ServiceAccount
   name: spot-handler
   namespace: gpu-workloads
-
+  # Binds spot-handler ServiceAccount to spot-handler-role permissions
