@@ -1,0 +1,327 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: model-benchmark-pipeline-v2
+  namespace: gpu-workloads
+  labels:
+    app: llm-benchmarking
+    pipeline: benchmark
+    version: v2
+
+spec:
+  entrypoint: benchmark-pipeline
+  serviceAccountName: benchmark-runner
+  
+  arguments:
+    parameters:
+    - name: model-version-id
+      value: ""
+      # UUID of model version to benchmark (REQUIRED)
+    
+    - name: batch-size
+      value: "100"
+      # Number of configs to fetch per API call
+    
+    - name: api-base-url
+      value: "http://model-catalog-api:8000"
+      # Model Catalog API base URL
+    
+    - name: max-parallel-pods
+      value: "50"
+      # Maximum number of parallel benchmark pods
+  
+  # Main pipeline
+  templates:
+  - name: benchmark-pipeline
+    steps:
+    # Step 1: Populate matrix in database
+    - - name: populate-matrix
+        template: populate-matrix-step
+    
+    # Step 2: Run benchmarks with parallelism control
+    - - name: run-benchmarks
+        template: benchmark-worker-pool
+    
+    # Step 3: Aggregate and finalize
+    - - name: finalize
+        template: finalize-step
+  
+  # Populate matrix step
+  - name: populate-matrix-step
+    container:
+      image: model-catalog-api:latest
+      command: [python]
+      args:
+      - scripts/workflows/populate_matrix.py
+      - "{{workflow.parameters.model-version-id}}"
+      
+      env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: model-catalog-secrets
+            key: DATABASE_URL
+      
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+        limits:
+          memory: "1Gi"
+          cpu: "1"
+  
+  # Worker pool - manages parallel execution
+  - name: benchmark-worker-pool
+    steps:
+    - - name: worker-batch
+        template: fetch-and-run-batch
+        withParam: "{{item}}"
+        arguments:
+          parameters:
+          - name: worker-id
+            value: "{{item}}"
+    
+    # Create worker IDs (0 to max-parallel-pods)
+    # Each worker runs in a loop fetching configs
+    withSequence:
+      count: "{{workflow.parameters.max-parallel-pods}}"
+  
+  # Worker: fetch configs and run benchmarks
+  - name: fetch-and-run-batch
+    inputs:
+      parameters:
+      - name: worker-id
+    
+    steps:
+    # Loop: fetch batch → run benchmarks → repeat until no more pending
+    - - name: fetch-configs
+        template: fetch-configs-step
+    
+    - - name: check-has-work
+        template: check-configs-available
+        arguments:
+          parameters:
+          - name: configs-json
+            value: "{{steps.fetch-configs.outputs.result}}"
+    
+    - - name: run-config-batch
+        template: run-single-config
+        when: "{{steps.check-has-work.outputs.result}} == 'true'"
+        withParam: "{{steps.fetch-configs.outputs.result}}"
+        arguments:
+          parameters:
+          - name: config
+            value: "{{item}}"
+    
+    - - name: repeat
+        template: fetch-and-run-batch
+        when: "{{steps.check-has-work.outputs.result}} == 'true'"
+        arguments:
+          parameters:
+          - name: worker-id
+            value: "{{inputs.parameters.worker-id}}"
+  
+  # Fetch pending configs via API
+  - name: fetch-configs-step
+    script:
+      image: python:3.11-slim
+      command: [python]
+      source: |
+        import requests
+        import json
+        import sys
+        
+        API_URL = "{{workflow.parameters.api-base-url}}"
+        BATCH_SIZE = int("{{workflow.parameters.batch-size}}")
+        
+        try:
+            # Fetch pending batch via API (race-condition safe)
+            response = requests.post(
+                f"{API_URL}/api/v1/workflow/configs/get-batch",
+                json={"limit": BATCH_SIZE, "priority_threshold": 1000},
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            configs = response.json()
+            
+            if configs:
+                print(f"Fetched {len(configs)} configs")
+                print(json.dumps(configs))
+            else:
+                print("[]")  # Empty array
+                
+        except Exception as e:
+            print(f"Error fetching configs: {e}", file=sys.stderr)
+            print("[]")  # Return empty on error
+  
+  # Check if configs available
+  - name: check-configs-available
+    inputs:
+      parameters:
+      - name: configs-json
+    
+    script:
+      image: python:3.11-slim
+      command: [python]
+      source: |
+        import json
+        
+        configs_json = '''{{inputs.parameters.configs-json}}'''
+        
+        try:
+            configs = json.loads(configs_json)
+            has_work = len(configs) > 0
+            print('true' if has_work else 'false')
+        except:
+            print('false')
+  
+  # Run single benchmark config
+  - name: run-single-config
+    inputs:
+      parameters:
+      - name: config
+    
+    retryStrategy:
+      limit: 2
+      retryPolicy: Always
+      backoff:
+        duration: "5m"
+        factor: 2
+        maxDuration: "30m"
+    
+    container:
+      image: benchmark-runner:latest
+      command: [python, -m, benchmark.run]
+      args:
+      - --config-json
+      - "{{inputs.parameters.config}}"
+      - --api-url
+      - "{{workflow.parameters.api-base-url}}"
+      
+      resources:
+        requests:
+          nvidia.com/gpu: 1
+          memory: 16Gi
+          cpu: 4
+        limits:
+          nvidia.com/gpu: 1
+          memory: 32Gi
+          cpu: 8
+      
+      env:
+      - name: API_BASE_URL
+        value: "{{workflow.parameters.api-base-url}}"
+      
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: model-catalog-secrets
+            key: DATABASE_URL
+      
+      volumeMounts:
+      - name: checkpoint-storage
+        mountPath: /checkpoint
+    
+    # Spot instance configuration
+    tolerations:
+    - key: "spot-instance"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+    
+    # Node affinity for GPU nodes
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+              - p3.2xlarge    # V100
+              - p3.8xlarge    # 4x V100
+              - p4d.24xlarge  # 8x A100-40GB
+              - p4de.24xlarge # 8x A100-80GB
+              - p5.48xlarge   # 8x H100
+              - g6.xlarge     # L4
+  
+  # Finalize step
+  - name: finalize-step
+    container:
+      image: model-catalog-api:latest
+      command: [python, -m, scripts.aggregate_and_rank]
+      args:
+      - --model-version-id
+      - "{{workflow.parameters.model-version-id}}"
+      
+      env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: model-catalog-secrets
+            key: DATABASE_URL
+      
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "1"
+        limits:
+          memory: "4Gi"
+          cpu: "2"
+
+  # Volume for checkpoints (Spot instance recovery)
+  volumeClaimTemplates:
+  - metadata:
+      name: checkpoint-storage
+    spec:
+      accessModes: ["ReadWriteMany"]  # Allow multiple pods to share
+      resources:
+        requests:
+          storage: 100Gi  # Increased for large-scale benchmarking
+
+---
+# Service account with permissions
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: benchmark-runner
+  namespace: gpu-workloads
+
+---
+# Role for benchmark runner
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: benchmark-runner-role
+  namespace: gpu-workloads
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+
+---
+# Role binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: benchmark-runner-binding
+  namespace: gpu-workloads
+subjects:
+- kind: ServiceAccount
+  name: benchmark-runner
+  namespace: gpu-workloads
+roleRef:
+  kind: Role
+  name: benchmark-runner-role
+  apiGroup: rbac.authorization.k8s.io
+
+
+
+

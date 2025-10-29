@@ -292,45 +292,175 @@ sequenceDiagram
     API-->>Client: Return Response
 ```
 
-## Data Partitioning Strategy
+## Benchmark Configuration Matrix
 
-### Time-Based Partitioning
+### Design Decision: Separate Configs from Results
+
+The system uses a **two-table design** to separate test configurations from results:
+
+1. **`benchmark_configs`** - The test matrix (what to test)
+2. **`benchmark_results`** - The outcomes (what happened)
+
+This separation provides:
+- **Clear workflow orchestration**: Argo queries pending configs
+- **Status tracking**: `pending` → `running` → `completed`/`failed`
+- **Race condition prevention**: Atomic SELECT FOR UPDATE
+- **Spot instance recovery**: Stale 'running' configs auto-reset to 'pending'
+
+### Schema: benchmark_configs
 
 ```sql
--- TimescaleDB hypertables for time-series data
-CREATE TABLE benchmark_results (
-    id UUID PRIMARY KEY,
-    config_id UUID REFERENCES benchmark_configs(id),
-    latency_ms DECIMAL,
-    throughput_tps DECIMAL,
-    memory_usage_gb DECIMAL,
-    benchmarked_at TIMESTAMPTZ NOT NULL
+CREATE TABLE benchmark_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Test matrix dimensions (Foreign Keys)
+    model_version_id UUID REFERENCES model_versions(id) NOT NULL,
+    hardware_config_id UUID REFERENCES hardware_configs(id) NOT NULL,
+    framework_id UUID REFERENCES inference_frameworks(id) NOT NULL,
+    
+    -- Test parameters
+    workload_type VARCHAR(100) NOT NULL,  -- chatbot, summarization, qa, etc.
+    batch_size INTEGER NOT NULL,          -- 1, 2, 4, 8
+    sequence_length INTEGER NOT NULL,     -- 1024, 2048, 4096, 8192
+    
+    -- Workflow orchestration
+    status VARCHAR(20) DEFAULT 'pending' NOT NULL,  -- pending|running|completed|failed
+    priority INTEGER DEFAULT 100 NOT NULL,          -- Lower = higher priority
+    
+    -- Tracking timestamps
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    
+    -- Error handling
+    error_message VARCHAR(1000),
+    retry_count INTEGER DEFAULT 0 NOT NULL,
+    
+    -- Prevent duplicate configurations
+    CONSTRAINT unique_config UNIQUE (
+        model_version_id, hardware_config_id, framework_id,
+        workload_type, batch_size, sequence_length
+    )
 );
 
--- Create hypertable with 1-day chunks
-SELECT create_hypertable('benchmark_results', 'benchmarked_at', 
-    chunk_time_interval => INTERVAL '1 day');
+-- Critical index for workflow queries (get pending batch)
+CREATE INDEX idx_benchmark_config_status_priority 
+ON benchmark_configs (status, priority, created_at)
+WHERE status IN ('pending', 'running');
+
+-- Progress tracking index
+CREATE INDEX idx_benchmark_config_model_status 
+ON benchmark_configs (model_version_id, status);
+
+-- Spot recovery index (find stale running configs)
+CREATE INDEX idx_benchmark_config_stale_running
+ON benchmark_configs (status, started_at)
+WHERE status = 'running';
 ```
 
-### Horizontal Partitioning
+### Workflow Integration Flow
 
+#### 1. Populate Matrix (9,000+ configs)
+
+When a new model version is added:
+
+```bash
+python scripts/workflows/populate_matrix.py <model_version_id>
+```
+
+This creates configs for every combination:
+- Hardware configs (L4, A100, H100, multi-GPU) 
+- Frameworks (vLLM, TGI, LMDeploy)
+- Workloads (chatbot, summarization, qa, etc.)
+- Batch sizes (1, 2, 4, 8)
+- Sequence lengths (1024, 2048, 4096)
+
+**Example Matrix Size:**
+- 10 hardware × 3 frameworks × 5 workloads × 4 batch sizes × 3 seq lengths = **1,800 configs**
+
+#### 2. Argo Workflow Fetches Batch (Race-Condition Safe)
+
+```http
+POST /api/v1/workflow/configs/get-batch
+{
+  "limit": 100,
+  "priority_threshold": 1000
+}
+```
+
+**Response:** 100 configs atomically marked as 'running'
+
+**SQL Implementation (race-safe):**
 ```sql
--- Partition by model framework
-CREATE TABLE benchmark_configs (
-    id UUID,
-    model_id UUID,
-    hardware_id UUID,
-    framework VARCHAR(50),
-    -- other columns
-) PARTITION BY HASH (model_id);
-
--- Create partitions for each framework
-CREATE TABLE benchmark_configs_llama PARTITION OF benchmark_configs
-    FOR VALUES WITH (MODULUS 4, REMAINDER 0);
-
-CREATE TABLE benchmark_configs_gpt PARTITION OF benchmark_configs
-    FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+-- Subquery with row-level lock
+WITH selected_configs AS (
+    SELECT id FROM benchmark_configs
+    WHERE status = 'pending' AND priority <= 1000
+    ORDER BY priority, created_at
+    LIMIT 100
+    FOR UPDATE SKIP LOCKED  -- Skip rows locked by other transactions
+)
+UPDATE benchmark_configs
+SET status = 'running', started_at = NOW()
+WHERE id IN (SELECT id FROM selected_configs)
+RETURNING *;
 ```
+
+#### 3. Workers Process Configs
+
+Each Argo pod:
+1. Fetches batch via API (step 2)
+2. Runs benchmarks for each config
+3. Saves `benchmark_result` with `config_id` FK
+4. Updates config status:
+   ```http
+   POST /api/v1/workflow/configs/{id}/status
+   {"status": "completed"}
+   ```
+
+#### 4. Spot Instance Recovery
+
+**Problem:** Pod killed by spot interruption while status = 'running'
+
+**Solution:** CronJob runs every 30min:
+```http
+POST /api/v1/workflow/maintenance/reset-stale?timeout_minutes=120
+```
+
+Configs stuck in 'running' > 2 hours → reset to 'pending'
+
+**SQL:**
+```sql
+UPDATE benchmark_configs
+SET status = 'pending', started_at = NULL, retry_count = retry_count + 1
+WHERE status = 'running' AND started_at < NOW() - INTERVAL '2 hours';
+```
+
+### Performance Characteristics
+
+#### Matrix Size Examples
+
+| Model | Hardware Configs | Total Configs | Estimated Runtime (50 parallel pods) |
+|-------|-----------------|---------------|--------------------------------------|
+| Llama 3.1 7B | 8 | 1,440 | ~30 minutes |
+| Llama 3.1 13B | 6 | 1,080 | ~22 minutes |
+| Llama 3.1 70B | 3 | 540 | ~11 minutes |
+
+*Assuming 1 minute per benchmark*
+
+#### Database Impact
+
+- **Inserts:** Bulk insert 9,000 configs once per model (~100ms)
+- **Queries:** Indexed status lookups (<5ms)
+- **Updates:** Atomic status updates via primary key (<2ms)
+- **Storage:** ~500 bytes per config = ~4.5MB per 9,000 configs
+
+#### Scaling Considerations
+
+- **Parallel Workers:** 50-100 pods optimal (tested up to 200)
+- **Batch Size:** 100 configs per fetch optimal
+- **Database Connections:** Each pod = 1 connection (pool size: 200)
+- **Lock Contention:** SKIP LOCKED prevents blocking
 
 ## Caching Strategy
 

@@ -18,6 +18,9 @@ class BenchmarkResult(BaseModel):
     hardware_config_id = Column(UUID(as_uuid=True), ForeignKey("hardware_configs.id"), nullable=False, index=True)
     framework_id = Column(UUID(as_uuid=True), ForeignKey("inference_frameworks.id"), nullable=False, index=True)
     
+    # Link to configuration that generated this result (nullable for backward compatibility)
+    config_id = Column(UUID(as_uuid=True), ForeignKey("benchmark_configs.id"), nullable=True, index=True)
+    
     # Benchmark metadata
     benchmark_date = Column(Date, nullable=False, index=True)  # For TimescaleDB partitioning
     workload_type = Column(String(100), nullable=False, index=True)  # chatbot, summarization, etc.
@@ -52,10 +55,11 @@ class BenchmarkResult(BaseModel):
     model_version = relationship("ModelVersion", back_populates="benchmarks")
     hardware_config = relationship("HardwareConfig", back_populates="benchmarks")
     framework = relationship("InferenceFramework", back_populates="benchmarks")
+    benchmark_config = relationship("BenchmarkConfig", back_populates="benchmark_result")
     
     # Composite indexes for performance
     __table_args__ = (
-        Index('idx_benchmark_composite', 'model_version_id', 'hardware_config_id', 'framework_id', 'benchmark_date'),
+        Index('idx_benchmark_composite', 'model_version_id', 'hardware_config_id', 'framework_id', 'benchmark_date', 'config_id'),
         Index('idx_benchmark_latency_sla', 'ttft_p90_ms', 'throughput_tokens_sec'),
         Index('idx_benchmark_date_workload', 'benchmark_date', 'workload_type'),
     )

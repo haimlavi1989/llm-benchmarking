@@ -29,6 +29,7 @@ class HardwareConfig(BaseModel):
     
     # Relationships
     benchmarks = relationship("BenchmarkResult", back_populates="hardware_config")
+    benchmark_configs = relationship("BenchmarkConfig", back_populates="hardware_config")
     
     __table_args__ = (
         Index('idx_hardware_vram_cost', 'total_vram_gb', 'cost_per_hour_usd', 'spot_available'),
@@ -57,6 +58,7 @@ class InferenceFramework(BaseModel):
     
     # Relationships
     benchmarks = relationship("BenchmarkResult", back_populates="framework")
+    benchmark_configs = relationship("BenchmarkConfig", back_populates="framework")
     
     def __repr__(self) -> str:
         return f"<InferenceFramework(name={self.name}, version={self.version})>"

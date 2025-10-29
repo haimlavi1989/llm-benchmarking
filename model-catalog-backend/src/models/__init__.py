@@ -3,6 +3,7 @@
 from .base import Base, BaseModel, TimestampMixin, UUIDMixin
 from .model import Model, ModelVersion
 from .benchmark import BenchmarkResult, DailyModelStats, ModelRanking
+from .benchmark_config import BenchmarkConfig
 from .hardware import HardwareConfig, InferenceFramework, UseCaseTaxonomy, ModelUseCase
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "ModelVersion",
     # Benchmark entities
     "BenchmarkResult",
+    "BenchmarkConfig",
     "DailyModelStats",
     "ModelRanking",
     # Hardware and infrastructure

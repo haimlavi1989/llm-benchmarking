@@ -60,6 +60,7 @@ class ModelVersion(BaseModel):
     # Relationships
     model = relationship("Model", back_populates="versions")
     benchmarks = relationship("BenchmarkResult", back_populates="model_version", cascade="all, delete-orphan")
+    benchmark_configs = relationship("BenchmarkConfig", back_populates="model_version", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_model_version_vram_quant', 'vram_requirement_gb', 'quantization_bits', 'format'),
